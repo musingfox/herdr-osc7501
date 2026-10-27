@@ -25,6 +25,7 @@
 - `report-agent --message` 的文字不在 event JSON、`pane get`、`agent list` 裡，所以不送 `msg`；`kind` 也沒有來源。
 - client tty 用 `ps` 比對 client 的 argv，只認得 `herdr`（預設 session）、`herdr --session <name>`、`herdr session attach <name>`。`--session=<name>` 和用環境變數選 session 的 client 會漏掉。
 - 不同 config 目錄底下的兩個同名 session，從 argv 分不出來，兩邊的 client 都會收到。
+- herdr 每個 server 同時最多跑 32 個 plugin command，超過的會被丟掉。hook 之間不互相等待，只有短時間內湧入大量事件才會碰到上限。如果最後一個事件的 hook 被丟掉，而且當時在跑的 hook 都已經做完最後一次重讀，record 會停在舊狀態，直到下一個事件。
 - `--remote` 與 `remote-client-bridge` 的 client 沒有本機 tty，這條路到不了。
 - 從外部寫 tty 會和 herdr 的畫面輸出交錯。壓測 300 次寫入後畫面沒有殘碼，但瞬間的錯亂量不到。
 - 根治的做法是 herdr client 在狀態變化時原生送 OSC 7501；client 已經會寫視窗標題和 OSC 通知到外層終端。
