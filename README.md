@@ -14,9 +14,14 @@
 
 ## 運作方式
 
-- `[[events]] on = "pane.agent_status_changed"` 觸發 `hook.sh`。
-- event JSON 的形狀：`{"event":"pane_agent_status_changed","data":{"pane_id":"w1:p1","workspace_id":"w1","agent_status":"working","agent":"claude"}}`。
-- 狀態對應：`idle`、`working`、`blocked`、`done` 原樣送出；其他狀態（`unknown`、release）送 `state=clear:id=…`。
+- `pane.agent_status_changed`、`pane.agent_detected`、`pane.closed`、`pane.exited`、`pane.moved` 都觸發 `hook.sh`。
+- 事件 JSON 的狀態可能已經過時，所以 hook 用 `herdr pane get` 讀 pane 目前的狀態。`pane get` 回 `pane_not_found` 以外的錯誤時，視為暫時失敗，退回事件 JSON。
+- hook 之間不排隊，完成順序不固定。所以寫出後會重讀一次，結果不同就重寫，最多三輪。
+- 狀態對應：`idle`、`working`、`blocked`、`done` 原樣送出；其他狀態（`unknown`）送 `state=clear:id=…`。
+- 以下情況也送 `state=clear`：
+  - `pane get` 回 `pane_not_found`，也就是 pane 已經關閉或結束。比 close 晚跑完的狀態 hook 因此不會把 record 寫回來。
+  - pane 沒有 agent，也就是 agent 已經釋放。釋放後 pane 可能留著最後的狀態。
+  - `pane.moved` 時舊的 pane id 和新的不同（移到別的 workspace 時才會變），先清舊 id，再寫新 id。
 - pane id 的 `:` 不合 OSC 7501 的 id 文法，轉成 `.`（`w1:p1` → `w1.p1`）。
 - `title` 是 pane cwd 的最後一段。
 
