@@ -23,3 +23,11 @@ command = ["bash", "hook.sh"]
 [[events]]
 on = "pane.moved"
 command = ["bash", "hook.sh"]
+
+[[events]]
+on = "tab.closed"
+command = ["bash", "hook.sh"]
+
+[[events]]
+on = "workspace.closed"
+command = ["bash", "hook.sh"]

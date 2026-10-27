@@ -14,14 +14,15 @@
 
 ## 運作方式
 
-- `pane.agent_status_changed`、`pane.agent_detected`、`pane.closed`、`pane.exited`、`pane.moved` 都觸發 `hook.sh`。
-- 事件 JSON 的狀態可能已經過時，所以 hook 用 `herdr pane get` 讀 pane 目前的狀態。`pane get` 回 `pane_not_found` 以外的錯誤時，視為暫時失敗，退回事件 JSON。
+- `pane.agent_status_changed`、`pane.agent_detected`、`pane.closed`、`pane.exited`、`pane.moved`、`tab.closed`、`workspace.closed` 都觸發 `hook.sh`。
+- 事件 JSON 的狀態可能已經過時，所以 hook 用 `herdr pane get` 讀 pane 目前的狀態。`pane get` 回 `pane_not_found` 以外的錯誤時，視為暫時失敗，退回事件 JSON；關 tab 或 workspace 時的重送則退回 `pane list` 裡該 pane 的資料。
 - hook 之間不排隊，完成順序不固定。所以寫出後會重讀一次，結果不同就重寫，最多三輪。
 - 狀態對應：`idle`、`working`、`blocked`、`done` 原樣送出；其他狀態（`unknown`）送 `state=clear:id=…`。
 - 以下情況也送 `state=clear`：
   - `pane get` 回 `pane_not_found`，也就是 pane 已經關閉或結束。比 close 晚跑完的狀態 hook 因此不會把 record 寫回來。
   - pane 沒有 agent，也就是 agent 已經釋放。釋放後 pane 可能留著最後的狀態。
   - `pane.moved` 時舊的 pane id 和新的不同（移到別的 workspace 時才會變），先清舊 id，再寫新 id。
+- 關 tab 或 workspace 時，herdr 不會對裡面的 pane 各送 `pane.closed`，事件本身也不帶 pane id。所以 hook 先讀 `herdr pane list`，送不帶 id 的 `state=clear` 清掉整個 terminal 的 record，再把每個還活著的 pane 照上面的方式重寫一次。`pane list` 失敗時什麼都不送。
 - pane id 的 `:` 不合 OSC 7501 的 id 文法，轉成 `.`（`w1:p1` → `w1.p1`）。
 - `title` 是 pane cwd 的最後一段。
 
@@ -29,8 +30,9 @@
 
 - `report-agent --message` 的文字不在 event JSON、`pane get`、`agent list` 裡，所以不送 `msg`；`kind` 也沒有來源。
 - client tty 用 `ps` 比對 client 的 argv，只認得 `herdr`（預設 session）、`herdr --session <name>`、`herdr session attach <name>`。`--session=<name>` 和用環境變數選 session 的 client 會漏掉。
-- 不同 config 目錄底下的兩個同名 session，從 argv 分不出來，兩邊的 client 都會收到。
+- 不同 config 目錄底下的兩個同名 session，從 argv 分不出來，兩邊的 client 都會收到。其中一邊關 tab 或 workspace 時，不帶 id 的 `state=clear` 也會清掉另一邊的 record，直到那邊的下一個事件。
 - herdr 每個 server 同時最多跑 32 個 plugin command，超過的會被丟掉。hook 之間不互相等待，只有短時間內湧入大量事件才會碰到上限。如果最後一個事件的 hook 被丟掉，而且當時在跑的 hook 都已經做完最後一次重讀，record 會停在舊狀態，直到下一個事件。
+- 關 tab 或 workspace 時，重送讀完 `pane list` 之後才出現的 pane id，若它的 hook 在重送清除前就寫出，record 會被清掉，直到該 pane 的下一個事件。新建的 pane，以及同時被移到別的 workspace 而換了 id 的 pane，都會碰到。
 - `--remote` 與 `remote-client-bridge` 的 client 沒有本機 tty，這條路到不了。
 - 從外部寫 tty 會和 herdr 的畫面輸出交錯。壓測 300 次寫入後畫面沒有殘碼，但瞬間的錯亂量不到。
 - 根治的做法是 herdr client 在狀態變化時原生送 OSC 7501；client 已經會寫視窗標題和 OSC 通知到外層終端。

@@ -4,9 +4,6 @@
 # herdr unsets HERDR_SESSION for the default session.
 session=${HERDR_SESSION:-default}
 
-pane=$(jq -r '.data.pane_id // .data.pane.pane_id' <<<"$HERDR_PLUGIN_EVENT_JSON")
-id=${pane//:/.}
-
 # herdr has no client list API, so match the client argv forms: herdr, herdr --session S, herdr session attach S.
 ttys=$(ps -axo tty=,command= | awk -v s="$session" '$1 != "??" && $2 ~ /(^|\/)herdr$/ &&
   ((NF == 2 && s == "default") || (NF == 4 && $3 == "--session" && $4 == s "") || (NF == 5 && $3 == "session" && $4 == "attach" && $5 == s "")) {print $1}' | sort -u)
@@ -19,11 +16,11 @@ emit() {
 }
 
 # The event's status may already be stale, so read the pane's current one.
-# A closed pane reads as clear, so a hook racing the close cannot restore its record; other failures are transient, so fall back to the event.
+# A closed pane reads as clear, so a hook racing the close cannot restore its record; other failures are transient, so fall back to what the event or pane list reported.
 current() {
   local info status agent cwd body
   info=$("$HERDR_BIN_PATH" pane get "$pane" 2>&1 | jq -c '.result.pane // if .error.code == "pane_not_found" then {} else empty end' 2>/dev/null)
-  [ -n "$info" ] || info=$(jq -c '.data.pane // .data' <<<"$HERDR_PLUGIN_EVENT_JSON")
+  [ -n "$info" ] || info=$fallback
   # A released agent can leave its last status on the pane, so a pane without an agent reads as clear.
   status=$(jq -r 'if .agent then .agent_status else empty end' <<<"$info")
   agent=$(jq -r '.agent // empty' <<<"$info" | tr -cd 'A-Za-z0-9_.+-' | cut -c1-32)
@@ -39,16 +36,38 @@ current() {
   printf '%s' "$body"
 }
 
-# A move to another workspace changes the pane id, so drop the record under the old one.
-previous=$(jq -r '.data.previous_pane_id // empty' <<<"$HERDR_PLUGIN_EVENT_JSON")
-[ -n "$previous" ] && [ "$previous" != "$pane" ] && emit "state=clear:id=${previous//:/.}"
-
 # Hooks run unserialized and finish out of order, and OSC 7501 has no sequence number, so the last write wins.
 # Rewrite until a re-read matches the last write; a status change after that re-read fires a new event.
-body=$(current)
-for _ in 1 2 3; do
-  emit "$body"
-  written=$body
+forward() {
+  local body written
+  id=${pane//:/.}
   body=$(current)
-  [ "$body" = "$written" ] && break
-done
+  for _ in 1 2 3; do
+    emit "$body"
+    written=$body
+    body=$(current)
+    [ "$body" = "$written" ] && break
+  done
+}
+
+case "$HERDR_PLUGIN_EVENT" in
+  # herdr sends no pane.closed for the panes of a closed tab or workspace, and the event names none.
+  # A bare clear also wipes the live panes' records, so it goes out only after pane list succeeds.
+  tab.closed|workspace.closed)
+    list=$("$HERDR_BIN_PATH" pane list) || exit
+    panes=$(jq -r '.result.panes[].pane_id' <<<"$list") || exit
+    emit "state=clear"
+    for pane in $panes; do
+      fallback=$(jq -c --arg p "$pane" '.result.panes[] | select(.pane_id == $p)' <<<"$list")
+      forward
+    done
+    ;;
+  *)
+    pane=$(jq -r '.data.pane_id // .data.pane.pane_id' <<<"$HERDR_PLUGIN_EVENT_JSON")
+    fallback=$(jq -c '.data.pane // .data' <<<"$HERDR_PLUGIN_EVENT_JSON")
+    # A move to another workspace changes the pane id, so drop the record under the old one.
+    previous=$(jq -r '.data.previous_pane_id // empty' <<<"$HERDR_PLUGIN_EVENT_JSON")
+    [ -n "$previous" ] && [ "$previous" != "$pane" ] && emit "state=clear:id=${previous//:/.}"
+    forward
+    ;;
+esac
