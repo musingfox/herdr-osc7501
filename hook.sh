@@ -15,6 +15,11 @@ emit() {
   echo "$(date +%T) $session $1" >> "$HERDR_PLUGIN_STATE_DIR/log.txt"
 }
 
+# Rex discards the whole report if the decoded title has a Cc character or exceeds 192 bytes, so drop those and cut on a character boundary.
+title() {
+  jq -nr --arg s "$1" '$s | gsub("\\p{Cc}"; "") | [foreach explode[] as $c (0; . + ([$c] | implode | utf8bytelength); select(. <= 192) | $c)] | implode | @base64'
+}
+
 # The event's status may already be stale, so read the pane's current one.
 # A closed pane reads as clear, so a hook racing the close cannot restore its record; other failures are transient, so fall back to what the event or pane list reported.
 current() {
@@ -31,7 +36,7 @@ current() {
   esac
   if [ "$body" != "state=clear:id=$id" ]; then
     [ -n "$agent" ] && body="$body:app=$agent"
-    [ -n "$cwd" ] && body="$body:title=$(printf '%s' "${cwd##*/}" | base64 | tr -d '\n')"
+    [ -n "$cwd" ] && body="$body:title=$(title "${cwd##*/}")"
   fi
   printf '%s' "$body"
 }
