@@ -2,7 +2,7 @@
 
 把 herdr 裡每個 pane 的 agent 狀態，用 OSC 7501（[Rex Program Status Protocol](https://www.superlogical.com/rex/docs/build/program-status.md)）回報給外層終端。
 
-目前是 POC：`hook.sh` 只在名為 `poc7501` 的 herdr session 動作。
+目前是 POC：`hook.sh` 在每個 herdr session 都會動作，包括預設 session。
 
 ## 為什麼要繞路
 
@@ -23,7 +23,8 @@
 ## 已知限制
 
 - `report-agent --message` 的文字不在 event JSON、`pane get`、`agent list` 裡，所以不送 `msg`；`kind` 也沒有來源。
-- client tty 用 `ps` 比對 `herdr --session <name>`，會漏掉預設 session（argv 只有 `herdr`）和 `herdr session attach`。
+- client tty 用 `ps` 比對 client 的 argv，只認得 `herdr`（預設 session）、`herdr --session <name>`、`herdr session attach <name>`。`--session=<name>` 和用環境變數選 session 的 client 會漏掉。
+- 不同 config 目錄底下的兩個同名 session，從 argv 分不出來，兩邊的 client 都會收到。
 - `--remote` 與 `remote-client-bridge` 的 client 沒有本機 tty，這條路到不了。
 - 從外部寫 tty 會和 herdr 的畫面輸出交錯。壓測 300 次寫入後畫面沒有殘碼，但瞬間的錯亂量不到。
 - 根治的做法是 herdr client 在狀態變化時原生送 OSC 7501；client 已經會寫視窗標題和 OSC 通知到外層終端。
@@ -33,8 +34,8 @@
 前置：herdr 0.9.5 以上、`jq`、在 Rex 裡執行。
 
 1. 連結 plugin：`herdr plugin link .`
-2. 在一個 Rex block 開 client：`herdr --session poc7501`
-3. 在另一個 shell 送狀態：`herdr --session poc7501 pane report-agent w1:p1 --source poc --agent claude --state working --seq 1`
+2. 在一個 Rex block 開 client：`herdr --session osc7501-test`
+3. 在另一個 shell 送狀態：`herdr --session osc7501-test pane report-agent w1:p1 --source poc --agent claude --state working --seq 1`
 4. 讀 Rex 的 record（block id 用 `rex block ls` 查）：`rex block call -b <block-id> program_status`
 5. hook 的紀錄在 `~/.local/state/herdr/plugins/poc.osc7501/log.txt`。
-6. 結束後：`herdr plugin unlink poc.osc7501`，再 `herdr session stop poc7501`。
+6. 結束後：`herdr plugin unlink poc.osc7501`，再 `herdr session stop osc7501-test`。
