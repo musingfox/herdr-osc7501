@@ -1,5 +1,5 @@
 #!/bin/bash
-# POC: forward herdr agent status to the outer terminal as OSC 7501.
+# Forward herdr agent status to the outer terminal as OSC 7501.
 # Plugins have no outer-terminal API, so write to the tty of every attached client of this session.
 # herdr unsets HERDR_SESSION for the default session.
 session=${HERDR_SESSION:-default}

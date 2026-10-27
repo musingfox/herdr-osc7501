@@ -1,6 +1,6 @@
-id = "poc.osc7501"
-name = "OSC 7501 POC"
-version = "0.0.1"
+id = "musingfox.osc7501"
+name = "OSC 7501 agent status"
+version = "0.1.0"
 min_herdr_version = "0.9.5"
 platforms = ["macos"]
 
